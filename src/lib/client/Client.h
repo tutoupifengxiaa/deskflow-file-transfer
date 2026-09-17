@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 - 2026 Deskflow Developers
@@ -41,6 +42,7 @@ This class implements the top-level client algorithms for deskflow.
 class Client : public IClient
 {
 public:
+  bool fileDragLeaving = false;
   class DisconnectRequest : public EventData
   {
   public:

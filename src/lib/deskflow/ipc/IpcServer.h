@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025-2026 Synergy App Ltd
@@ -51,6 +52,7 @@ private:
 
   QLocalServer *m_server;
   QSet<QLocalSocket *> m_clients;
+  QHash<QLocalSocket *, QByteArray> m_readBuffers;
   QString m_serverName;
   QStringList m_pendingMessages;
   QByteArray m_typeName;

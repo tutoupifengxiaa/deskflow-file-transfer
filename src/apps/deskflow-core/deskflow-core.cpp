@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Chris Rizzitello <sithlord48@gmail.com>
@@ -14,11 +15,15 @@
 #include "common/Constants.h"
 #include "common/ExitCodes.h"
 #include "deskflow/ClientApp.h"
+#include "deskflow/FileTransfer.h"
+#include "deskflow/FileDrag.h"
 #include "deskflow/ServerApp.h"
+#include "deskflow/ipc/CoreIpc.h"
 #include "deskflow/ipc/CoreIpcServer.h"
 
 #if defined(Q_OS_WIN)
 #include "arch/win32/ArchMiscWindows.h"
+#include "platform/FileClipboard.h"
 #endif
 
 #include <QApplication>
@@ -70,6 +75,12 @@ App *createApp(const CoreArgParser &parser, EventQueue &events, const QString &p
 int main(int argc, char **argv)
 {
 #if defined(Q_OS_WIN)
+  if (argc == 3 && std::string_view(argv[1]) == "--read-file-clipboard") {
+    bool okay = false;
+    const auto version = QString::fromLatin1(argv[2]).toULong(&okay);
+    Log log;
+    return okay ? FileClipboard::runReader(version) : 1;
+  }
   ArchMiscWindows::setInstanceWin32(GetModuleHandle(nullptr));
 #endif
 
@@ -117,6 +128,7 @@ int main(int argc, char **argv)
   parser.parse();
 
   EventQueue events;
+  FileDrag::initialize(&events);
   const auto processName = QFileInfo(argv[0]).fileName();
 
   App *coreApp = createApp(parser, events, processName);
@@ -126,6 +138,9 @@ int main(int argc, char **argv)
       ipcServer, &deskflow::core::ipc::IpcServer::stopProcessRequested, coreApp, &App::quit, Qt::DirectConnection
   );
   ipcServer->listen();
+  FileTransfer::setProgressHandler([](const QString &state, qint64 received, qint64 total) {
+    ipcSendToClient(QStringLiteral("fileTransfer"), QStringLiteral("%1,%2,%3").arg(state).arg(received).arg(total));
+  });
 
   QThread coreThread;
   QObject::connect(&coreThread, &QThread::finished, &app, &QApplication::quit);

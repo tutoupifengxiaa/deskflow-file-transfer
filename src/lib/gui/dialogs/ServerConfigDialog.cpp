@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 - 2026 Chris Rizzitello <sithlord48@gmail.com>
@@ -238,10 +239,6 @@ void ServerConfigDialog::toggleClipboard(bool enabled)
   m_enableClipboard = enabled;
 
   ui->sbClipboardSizeLimit->setEnabled(enabled);
-  if (enabled && !ui->sbClipboardSizeLimit->value()) {
-    m_clipboardSize = Settings::defaultValue(Settings::Server::ClipboardSize).toUInt();
-    ui->sbClipboardSizeLimit->setValue(m_clipboardSize ? m_clipboardSize : 1);
-  }
   setButtonBoxEnabledButtons();
 }
 

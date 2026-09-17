@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 - 2026 Deskflow Developers
@@ -7,6 +8,8 @@
  */
 
 #include "platform/MSWindowsScreen.h"
+#include "deskflow/FileTransfer.h"
+#include "platform/FileClipboard.h"
 
 #include "arch/Arch.h"
 #include "arch/win32/ArchMiscWindows.h"
@@ -320,6 +323,9 @@ bool MSWindowsScreen::setClipboard(ClipboardID, const IClipboard *src)
 {
   MSWindowsClipboard dst(m_window);
   if (src != nullptr) {
+    if (const auto offer = FileTransfer::clipboardOffer(*src)) {
+      return FileClipboard::receive(*offer, m_window);
+    }
     // save clipboard data
     return Clipboard::copy(&dst, src);
   } else {
@@ -419,6 +425,13 @@ void *MSWindowsScreen::getEventTarget() const
 bool MSWindowsScreen::getClipboard(ClipboardID, IClipboard *dst) const
 {
   MSWindowsClipboard src(m_window);
+  const auto files = FileClipboard::offer();
+  if (!files.empty() && dst->open(dst->getTime())) {
+    dst->empty();
+    dst->add(IClipboard::Format::Files, files);
+    dst->close();
+    return true;
+  }
   Clipboard::copy(dst, &src);
   return true;
 }
@@ -1445,6 +1458,11 @@ void MSWindowsScreen::updateScreenShape()
 
 void MSWindowsScreen::handleFixes()
 {
+  if (FileClipboard::poll()) {
+    sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardClipboard);
+    sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardSelection);
+  }
+
   // fix clipboard chain
   fixClipboardViewer();
 

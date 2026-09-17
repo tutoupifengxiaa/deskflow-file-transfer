@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
@@ -8,6 +9,7 @@
  */
 
 #include "MainWindow.h"
+#include "gui/FileDragController.h"
 #include "ui_MainWindow.h"
 
 #include "Diagnostic.h"
@@ -250,6 +252,14 @@ void MainWindow::connectSlots()
       Qt::QueuedConnection
   );
   connect(&m_coreProcess, &CoreProcess::connectionStateChanged, this, &MainWindow::coreConnectionStateChanged);
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+  new FileDragController(m_coreProcess, this);
+#endif
+  connect(&m_coreProcess, &CoreProcess::fileTransferProgress, this, &MainWindow::fileTransferProgress);
+  connect(&m_coreProcess, &CoreProcess::connectionStateChanged, this, [this](ConnectionState state) {
+    if (m_fileTransferActive && state == ConnectionState::Disconnected)
+      fileTransferProgress(QStringLiteral("failed"), 0, 0);
+  });
   connect(&m_coreProcess, &CoreProcess::secureSocket, this, &MainWindow::secureSocket);
   connect(
       &m_coreProcess, &CoreProcess::daemonIpcClientConnectionFailed, this, &MainWindow::daemonIpcClientConnectionFailed
@@ -929,6 +939,43 @@ void MainWindow::showFirstConnectedMessage()
     return;
   Settings::setValue(Settings::Gui::ShownFirstConnectedMessage, true);
   messages::showFirstConnectedMessage(this);
+}
+
+void MainWindow::fileTransferProgress(const QString &state, qint64 received, qint64 total)
+{
+  QString message;
+  if (state == "receiving") {
+    const bool started = !m_fileTransferActive;
+    m_fileTransferActive = true;
+    m_largeFileTransfer = total >= 16 * 1024 * 1024;
+    const auto percent = total ? static_cast<int>(100.0 * received / total) : 0;
+    message = tr("Receiving files: %1% (%2 / %3 MiB).")
+                  .arg(percent)
+                  .arg(received / 1048576.0, 0, 'f', 1)
+                  .arg(total / 1048576.0, 0, 'f', 1);
+    if (started && m_largeFileTransfer)
+      m_trayIcon->showMessage(tr("File transfer"), message, QSystemTrayIcon::Information, 5000);
+  } else if (state == "dragReady") {
+    message = tr("Dragged files received. The destination will finish saving them.");
+  } else if (state == "ready") {
+    message = tr("Files are ready. You can paste now.");
+  } else if (state == "cancelled") {
+    message = tr("File transfer cancelled. Try again.");
+  } else if (state == "timeout") {
+    message = tr("File transfer timed out. Try again.");
+  } else if (state == "failed") {
+    message = tr("File transfer failed. Check the connection and source files, then retry.");
+  } else {
+    return;
+  }
+  if (state != "receiving") {
+    if (m_largeFileTransfer)
+      m_trayIcon->showMessage(tr("File transfer"), message, QSystemTrayIcon::Information, 5000);
+    m_fileTransferActive = false;
+    m_largeFileTransfer = false;
+  }
+  m_statusBar->showMessage(message, m_fileTransferActive ? 0 : 15000);
+  m_trayIcon->setToolTip(message);
 }
 
 void MainWindow::updateStatus()

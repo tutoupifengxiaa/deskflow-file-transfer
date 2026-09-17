@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
@@ -59,6 +60,7 @@ static const OptionID kOptionDefaultLockToScreenState = OPTION_CODE("LTSS");
 static const OptionID kOptionDisableLockToScreen = OPTION_CODE("DLTS");
 static const OptionID kOptionClipboardSharing = OPTION_CODE("CLPS");
 static const OptionID kOptionClipboardSharingSize = OPTION_CODE("CLSZ");
+static const OptionID kOptionFileDrag = OPTION_CODE("FDR1");
 //@}
 
 //! @name Screen switch corner masks

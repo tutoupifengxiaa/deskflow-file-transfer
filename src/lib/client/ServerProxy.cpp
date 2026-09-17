@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
@@ -12,6 +13,8 @@
 #include "base/Log.h"
 #include "client/Client.h"
 #include "deskflow/Clipboard.h"
+#include "deskflow/FileDrag.h"
+#include <QJsonDocument>
 #include "deskflow/ClipboardChunk.h"
 #include "deskflow/DeskflowException.h"
 #include "deskflow/OptionTypes.h"
@@ -35,6 +38,34 @@ ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue 
   assert(m_client != nullptr);
   assert(m_stream != nullptr);
 
+  m_files = std::make_unique<FileTransfer>([this](const std::string &message) {
+    ProtocolUtil::writef(m_stream, kMsgDFileBlock, &message);
+  });
+
+  m_files->setDragHandler([this](const QJsonObject &command) {
+    if (m_fileDragSupported) {
+      if (command.value("action").toString() == "finishSource")
+        m_client->fileDragLeaving = true;
+      FileDrag::receive(command, m_files.get());
+    }
+  });
+  m_events->addHandler(EventTypes::FileDragCommand, FileDrag::target(), [this](const Event &event) {
+    auto command = static_cast<const FileDrag::Command *>(event.getDataObject())->value;
+    const auto action = command.value("action").toString();
+    if (action == "hello")
+      m_fileDragGui = true;
+    if (!m_fileDragSupported)
+      return;
+    if (action == "offer") {
+      const auto offer = FileDrag::createOffer(command);
+      command.remove("paths");
+      command["offer"] = QJsonDocument::fromJson(QByteArray::fromStdString(offer)).object();
+    }
+    if (action == "cancel")
+      FileDrag::receive({{"action", "abort"}, {"id", command.value("id")}});
+    m_files->sendDrag(command);
+  });
+
   // initialize modifier translation table
   for (KeyModifierID id = 0; id < kKeyModifierIDLast; ++id)
     m_modifierTranslationTable[id] = id;
@@ -53,6 +84,7 @@ ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue 
 
 ServerProxy::~ServerProxy()
 {
+  m_events->removeHandler(EventTypes::FileDragCommand, FileDrag::target());
   setKeepAliveRate(-1.0);
   m_events->removeHandler(EventTypes::StreamInputReady, m_stream->getEventTarget());
   m_events->removeHandler(EventTypes::ClipboardSending, this);
@@ -208,6 +240,17 @@ ServerProxy::ConnectionResult ServerProxy::parseHandshakeMessage(const uint8_t *
 ServerProxy::ConnectionResult ServerProxy::parseMessage(const uint8_t *code)
 {
   using enum ConnectionResult;
+
+  m_files->poll();
+  if (memcmp(code, kMsgDFileBlock, 4) == 0) {
+    std::string message;
+    ProtocolUtil::readf(m_stream, kMsgDFileBlock + 4, &message);
+    if (!m_files->receive(message)) {
+      requestDisconnect("invalid file transfer message");
+      return Disconnect;
+    }
+    return Okay;
+  }
 
   if (memcmp(code, kMsgDMouseMove, 4) == 0) {
     mouseMove();
@@ -559,6 +602,10 @@ void ServerProxy::setClipboard()
     // forward
     Clipboard clipboard;
     clipboard.unmarshall(m_clipboardDataCached, 0);
+    if (const auto offer = FileTransfer::clipboardOffer(clipboard); offer && !m_files->remember(*offer)) {
+      requestDisconnect("invalid file offer");
+      return;
+    }
     m_client->setClipboard(id, &clipboard);
     m_clipboardDataCached.clear();
     m_clipboardDataCached.shrink_to_fit();
@@ -800,6 +847,13 @@ void ServerProxy::setOptions()
 
   // forward
   m_client->setOptions(options);
+  m_files->setOptions(options);
+  for (size_t i = 0; i + 1 < options.size(); i += 2) {
+    if (options[i] == kOptionFileDrag)
+      m_fileDragSupported = options[i + 1] == 1;
+  }
+  if (m_fileDragSupported && m_fileDragGui)
+    m_files->sendDrag({{"action", "hello"}});
 
   // update modifier table
   for (uint32_t i = 0, n = (uint32_t)options.size(); i < n; i += 2) {

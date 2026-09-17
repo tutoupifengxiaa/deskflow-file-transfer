@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
@@ -89,6 +90,7 @@ private:
   void serverConfigSaving();
   void coreProcessError(CoreProcess::Error error);
   void coreConnectionStateChanged(ConnectionState state);
+  void fileTransferProgress(const QString &state, qint64 received, qint64 total);
   void coreProcessStateChanged(ProcessState state);
 
   void trayIconActivated(QSystemTrayIcon::ActivationReason reason);
@@ -184,6 +186,8 @@ private:
 
   LogDock *m_logDock;
   StatusBar *m_statusBar = nullptr;
+  bool m_fileTransferActive = false;
+  bool m_largeFileTransfer = false;
 
   // Window Menu
   QMenu *m_menuFile = nullptr;

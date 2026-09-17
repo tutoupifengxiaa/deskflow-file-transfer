@@ -1,3 +1,4 @@
+# Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 # SPDX-FileCopyrightText: (C) 2024 - 2026 Deskflow Developers
 # SPDX-FileCopyrightText: (C) 2024 Symless Ltd
 # SPDX-License-Identifier: MIT
@@ -7,10 +8,16 @@ set(target gui)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 if(APPLE)
+  set_source_files_properties(OSXFileDrag.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
   set (platform_sources
     OSXHelpers.h
     OSXHelpers.mm
+    OSXFileDrag.mm
   )
+endif()
+
+if(WIN32)
+  list(APPEND platform_sources WindowsFileDrag.cpp)
 endif()
 
 add_library(${target} STATIC
@@ -125,3 +132,10 @@ target_link_libraries(${target}
     net
     Qt6::Widgets
 )
+
+if(WIN32 OR APPLE)
+  target_sources(${target} PRIVATE FileDragController.cpp FileDragController.h)
+endif()
+if(WIN32)
+  target_link_libraries(${target} PRIVATE Shlwapi Ole32 Shell32)
+endif()

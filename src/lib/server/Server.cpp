@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers.
@@ -22,6 +23,10 @@
 #include "net/TCPSocket.h"
 #include "server/ClientListener.h"
 #include "server/ClientProxy.h"
+#include "server/ClientProxy1_6.h"
+#include "deskflow/FileDrag.h"
+#include <QJsonDocument>
+#include <QUuid>
 #include "server/ClientProxyUnknown.h"
 #include "server/PrimaryClient.h"
 
@@ -65,6 +70,16 @@ Server::Server(ServerConfig &config, PrimaryClient *primaryClient, deskflow::Scr
     }
     clipboard.m_clipboardData = clipboard.m_clipboard.marshall();
   }
+
+  m_events->addHandler(EventTypes::FileDragCommand, FileDrag::target(), [this](const Event &event) {
+    auto command = static_cast<const FileDrag::Command *>(event.getDataObject())->value;
+    if (command.value("action").toString() == "offer") {
+      const auto offer = FileDrag::createOffer(command);
+      command.remove("paths");
+      command["offer"] = QJsonDocument::fromJson(QByteArray::fromStdString(offer)).object();
+    }
+    fileDragCommand(m_primaryClient, command);
+  });
 
   // install event handlers
   m_events->addHandler(EventTypes::Timer, this, [this](const auto &) { handleSwitchWaitTimeout(); });
@@ -152,6 +167,7 @@ Server::Server(ServerConfig &config, PrimaryClient *primaryClient, deskflow::Scr
 
 Server::~Server()
 {
+  m_events->removeHandler(EventTypes::FileDragCommand, FileDrag::target());
   // remove event handlers and timers
   using enum EventTypes;
   m_events->removeHandler(KeyStateKeyDown, m_inputFilter);
@@ -365,6 +381,8 @@ bool Server::isLockedToScreenServer() const
 
 bool Server::isLockedToScreen() const
 {
+  if (m_dragDestination && m_dragLeftDown)
+    return true;
   if (m_disableLockToScreen) {
     return false;
   }
@@ -462,7 +480,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
 
     // update the primary client's clipboards if we're leaving the
     // primary screen.
-    if (m_active == m_primaryClient && m_enableClipboard) {
+    if (m_active == m_primaryClient && m_enableClipboard && m_dragId.isEmpty()) {
       for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
         const ClipboardInfo &clipboard = m_clipboards[id];
         if (clipboard.m_clipboardOwner == getName(m_primaryClient)) {
@@ -492,7 +510,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
     // enter new screen
     m_active->enter(x, y, m_seqNum, m_primaryClient->getToggleMask(), forScreensaver);
 
-    if (m_enableClipboard) {
+    if (m_enableClipboard && m_dragId.isEmpty()) {
       // send the clipboard data to new active screen
       for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
         // Hackity hackity hack
@@ -1595,6 +1613,11 @@ void Server::onMouseDown(ButtonID id)
   LOG_VERBOSE("onMouseDown id=%d", id);
   assert(m_active != nullptr);
 
+  if (id == kButtonLeft) {
+    m_dragLeftDown = true;
+    if (m_dragPeers.contains(m_primaryClient))
+      FileDrag::gui({{"action", "button"}, {"down", true}});
+  }
   // relay
   m_active->mouseDown(id);
 }
@@ -1604,6 +1627,17 @@ void Server::onMouseUp(ButtonID id)
   LOG_VERBOSE("onMouseUp id=%d", id);
   assert(m_active != nullptr);
 
+  if (id == kButtonLeft) {
+    m_dragLeftDown = false;
+    if (m_dragPeers.contains(m_primaryClient))
+      FileDrag::gui({{"action", "button"}, {"down", false}});
+    if (!m_dragId.isEmpty())
+      LOG_INFO("file drag: primary button released");
+    if (m_dragAwaitingSource)
+      fileDragCommand(m_dragSource, {{"action", "cancel"}, {"id", m_dragId}});
+    else if (m_dragDestination)
+      sendFileDrag(m_dragDestination, {{"action", "release"}, {"id", m_dragId}});
+  }
   // relay
   m_active->mouseUp(id);
 }
@@ -1922,6 +1956,17 @@ bool Server::addClient(BaseClientProxy *client)
 
 bool Server::removeClient(BaseClientProxy *client)
 {
+  if (m_dragSource == client || m_dragDestination == client) {
+    if (m_dragSource && m_dragSource != client)
+      sendFileDrag(m_dragSource, {{"action", "abort"}, {"id", m_dragId}});
+    if (m_dragDestination && m_dragDestination != client)
+      sendFileDrag(m_dragDestination, {{"action", "abort"}, {"id", m_dragId}});
+    m_dragSource = m_dragDestination = nullptr;
+    m_dragAwaitingSource = false;
+    m_dragId.clear();
+  }
+  m_dragPeers.erase(client);
+  m_dragSeen.erase(client);
   using enum EventTypes;
   // return false if not in list
   ClientSet::iterator i = m_clientSet.find(client);
@@ -2061,4 +2106,122 @@ void Server::forceLeaveClient(const BaseClientProxy *client)
 
   // tell primary client about the active sides
   m_primaryClient->reconfigure(getActivePrimarySides());
+}
+
+void Server::sendFileDrag(BaseClientProxy *destination, const QJsonObject &command)
+{
+  if (destination == m_primaryClient) {
+    auto *source = dynamic_cast<ClientProxy1_6 *>(m_dragSource);
+    FileDrag::receive(command, source ? &source->fileTransfer() : nullptr);
+  } else if (auto *proxy = dynamic_cast<ClientProxy1_6 *>(destination)) {
+    proxy->fileTransfer().sendDrag(command);
+  }
+}
+
+void Server::fileDragCommand(BaseClientProxy *source, const QJsonObject &command)
+{
+  const auto action = command.value("action").toString();
+  const auto id = command.value("id").toString();
+  if (action == "hello") {
+    const auto now = std::chrono::steady_clock::now();
+    for (auto it = m_dragSeen.begin(); it != m_dragSeen.end();) {
+      if (now - it->second > std::chrono::seconds(10)) {
+        if (it->first == m_dragSource || it->first == m_dragDestination) {
+          if (m_dragSource) sendFileDrag(m_dragSource, {{"action", "abort"}, {"id", m_dragId}});
+          if (m_dragDestination) sendFileDrag(m_dragDestination, {{"action", "abort"}, {"id", m_dragId}});
+          m_dragSource = m_dragDestination = nullptr;
+          m_dragAwaitingSource = false;
+          m_dragId.clear();
+        }
+        m_dragPeers.erase(it->first);
+        it = m_dragSeen.erase(it);
+      } else ++it;
+    }
+    m_dragSeen[source] = now;
+    if (!m_dragPeers.contains(source)) LOG_INFO("file drag: desktop capability ready");
+    m_dragPeers.insert(source);
+    for (auto *peer : m_dragPeers) {
+      int edges = 0;
+      for (auto direction : {Direction::Left, Direction::Right, Direction::Top, Direction::Bottom}) {
+        int32_t x, y, width, height;
+        peer->getShape(x, y, width, height);
+        x += width / 2;
+        y += height / 2;
+        auto *neighbor = getNeighbor(peer, direction, x, y);
+        if (neighbor && m_dragPeers.contains(neighbor) &&
+            (peer == m_primaryClient || neighbor == m_primaryClient))
+          edges |= 1 << static_cast<int>(direction);
+      }
+      QJsonObject capabilities{{"action", "edges"}, {"edges", m_enableClipboard ? edges : 0}};
+      if (peer == m_primaryClient)
+        capabilities.insert("primaryLeftDown", m_dragLeftDown);
+      sendFileDrag(peer, capabilities);
+    }
+    return;
+  }
+  if (action == "offer") {
+    auto reject = [&] { LOG_INFO("file drag: offer rejected (active=%d, left=%d, ready=%d)", source == m_active, m_dragLeftDown, m_dragPeers.contains(source)); sendFileDrag(source, {{"action", "rejected"}, {"id", id}}); };
+    if (!m_enableClipboard || !m_dragPeers.contains(source) || source != m_active || !m_dragLeftDown ||
+        isLockedToScreenServer() || !m_dragId.isEmpty() || QUuid(id).isNull()) {
+      reject();
+      return;
+    }
+    const int edge = command.value("edge").toInt(-1);
+    if (edge < static_cast<int>(Direction::Left) || edge > static_cast<int>(Direction::Bottom)) {
+      reject();
+      return;
+    }
+    int32_t sx, sy, width, height;
+    source->getShape(sx, sy, width, height);
+    int32_t x = m_x, y = m_y;
+    if (source == m_primaryClient)
+      source->getCursorPos(x, y);
+    const auto direction = static_cast<Direction>(edge);
+    const bool near = direction == Direction::Left ? x < sx + 64 :
+        direction == Direction::Right ? x >= sx + width - 64 :
+        direction == Direction::Top ? y < sy + 64 : y >= sy + height - 64;
+    if (!near) { reject(); return; }
+    if (direction == Direction::Left) x = sx - 1;
+    if (direction == Direction::Right) x = sx + width;
+    if (direction == Direction::Top) y = sy - 1;
+    if (direction == Direction::Bottom) y = sy + height;
+    auto *destination = mapToNeighbor(source, direction, x, y);
+    if (!destination || !m_dragPeers.contains(destination) ||
+        (source != m_primaryClient && destination != m_primaryClient)) { reject(); return; }
+    const auto offer = command.value("offer").toObject();
+    const auto encoded = QJsonDocument(offer).toJson(QJsonDocument::Compact).toStdString();
+    auto *proxy = dynamic_cast<ClientProxy1_6 *>(source);
+    if (offer.isEmpty() || (proxy && !proxy->fileTransfer().remember(encoded))) { reject(); return; }
+    m_dragId = id;
+    m_dragSource = source;
+    m_dragDestination = destination;
+    m_dragOffer = offer;
+    m_dragAwaitingSource = true;
+    m_dragTargetX = x;
+    m_dragTargetY = y;
+    sendFileDrag(source, {{"action", "finishSource"}, {"id", id}});
+    LOG_INFO("file drag: waiting for native source to finish");
+  } else if (action == "sourceReady" && id == m_dragId && source == m_dragSource && m_dragAwaitingSource) {
+    if (!m_dragLeftDown || m_active != source || isLockedToScreenServer()) {
+      fileDragCommand(source, {{"action", "cancel"}, {"id", id}});
+      return;
+    }
+    auto *destination = m_dragDestination;
+    m_dragAwaitingSource = false;
+    switchScreen(destination, m_dragTargetX, m_dragTargetY, false);
+    if (m_active != destination) {
+      fileDragCommand(source, {{"action", "cancel"}, {"id", id}});
+      return;
+    }
+    sendFileDrag(destination, {{"action", "begin"}, {"id", id}, {"offer", m_dragOffer}});
+    LOG_INFO("file drag: switched to receiving screen");
+  } else if (id == m_dragId && ((action == "done" && source == m_dragDestination) ||
+                              (action == "cancel" && (source == m_dragDestination || source == m_dragSource)))) {
+    if (action == "cancel")
+      sendFileDrag(m_dragDestination, {{"action", "abort"}, {"id", id}});
+    sendFileDrag(m_dragSource, {{"action", "sourceDone"}, {"id", id}});
+    m_dragDestination = m_dragSource = nullptr;
+    m_dragAwaitingSource = false;
+    m_dragId.clear();
+  }
 }

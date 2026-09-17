@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 - 2026 Deskflow Developers
@@ -7,6 +8,8 @@
  */
 
 #include "platform/OSXScreen.h"
+#include "deskflow/FileTransfer.h"
+#include "platform/FileClipboard.h"
 
 #include "arch/Arch.h"
 #include "arch/ArchException.h"
@@ -73,7 +76,6 @@ std::string getProcessName(int pid);
 // TODO: upgrade deprecated function usage in these functions.
 void setZeroSuppressionInterval();
 void avoidSupression();
-void logCursorVisibility();
 void avoidHesitatingCursor();
 
 //
@@ -230,6 +232,13 @@ void *OSXScreen::getEventTarget() const
 
 bool OSXScreen::getClipboard(ClipboardID, IClipboard *dst) const
 {
+  const auto files = FileClipboard::offer();
+  if (!files.empty() && dst->open(dst->getTime())) {
+    dst->empty();
+    dst->add(IClipboard::Format::Files, files);
+    dst->close();
+    return true;
+  }
   Clipboard::copy(dst, &m_pasteboard);
   return true;
 }
@@ -305,6 +314,19 @@ int32_t OSXScreen::getJumpZoneSize() const
 
 bool OSXScreen::isAnyMouseButtonDown(uint32_t &buttonID) const
 {
+  if (m_isPrimary) {
+    // A release consumed by our event tap may not update the OS state tables.
+    // Track the events before consuming them so a held cross-screen drag does
+    // not leave a stale mouse-button lock after the user releases it.
+    const auto buttons = m_primaryButtons.load();
+    for (uint32_t button = 0; button < NumButtonIDs; ++button) {
+      if (buttons & (1U << button)) {
+        buttonID = mapMacButtonToDeskflow(button + 1);
+        return true;
+      }
+    }
+    return false;
+  }
   if (m_buttonState.test(0)) {
     buttonID = kButtonLeft;
     return true;
@@ -645,48 +667,55 @@ void OSXScreen::fakeMouseWheel(ScrollDelta delta) const
 
 void OSXScreen::showCursor()
 {
-  LOG_DEBUG("showing cursor");
-
-  CFStringRef propertyString = CFStringCreateWithCString(nullptr, "SetsCursorInBackground", kCFStringEncodingMacRoman);
-
-  CGSSetConnectionProperty(_CGSDefaultConnection(), _CGSDefaultConnection(), propertyString, kCFBooleanTrue);
-
-  CFRelease(propertyString);
-
-  CGError error = CGDisplayShowCursor(m_displayID);
-  if (error != kCGErrorSuccess) {
-    LOG_ERR("failed to show cursor, error=%d", error);
-  }
-
-  // appears to fix "mouse randomly not showing" bug
-  CGAssociateMouseAndMouseCursorPosition(true);
-
-  logCursorVisibility();
-
-  m_cursorHidden = false;
+  runOnOSXMainThread([&]() {
+    // Quartz uses a hide count. Only undo hides owned by this screen.
+    if (m_cursorHidden) {
+      const auto error = CGDisplayShowCursor(m_displayID);
+      if (error != kCGErrorSuccess) {
+        LOG_ERR("failed to show cursor, error=%d", error);
+        return;
+      }
+      m_cursorHidden = false;
+    }
+    CGAssociateMouseAndMouseCursorPosition(true);
+  });
 }
 
 void OSXScreen::hideCursor()
 {
-  LOG_DEBUG("hiding cursor");
+  runOnOSXMainThread([&]() {
+    if (m_cursorHidden) {
+      return;
+    }
+    CGSSetConnectionProperty(
+        _CGSDefaultConnection(), _CGSDefaultConnection(), CFSTR("SetsCursorInBackground"), kCFBooleanTrue
+    );
+    const auto error = CGDisplayHideCursor(m_displayID);
+    if (error != kCGErrorSuccess) {
+      LOG_ERR("failed to hide cursor, error=%d", error);
+      return;
+    }
+    m_cursorHidden = true;
+  });
+}
 
-  CFStringRef propertyString = CFStringCreateWithCString(nullptr, "SetsCursorInBackground", kCFStringEncodingMacRoman);
-
-  CGSSetConnectionProperty(_CGSDefaultConnection(), _CGSDefaultConnection(), propertyString, kCFBooleanTrue);
-
-  CFRelease(propertyString);
-
-  CGError error = CGDisplayHideCursor(m_displayID);
-  if (error != kCGErrorSuccess) {
-    LOG_ERR("failed to hide cursor, error=%d", error);
+void OSXScreen::checkCursorVisibility()
+{
+  if (m_isOnScreen) {
+    return;
   }
-
-  // appears to fix "mouse randomly not hiding" bug
-  CGAssociateMouseAndMouseCursorPosition(true);
-
-  logCursorVisibility();
-
-  m_cursorHidden = true;
+  runOnOSXMainThread([&]() {
+    // AppKit or a display/session transition can reveal a cursor while we
+    // control another computer. Reapply our one hide without accumulating
+    // additional hides, so one show on returning still restores the cursor.
+    if (m_cursorHidden && CGCursorIsVisible()) {
+      if (CGDisplayShowCursor(m_displayID) != kCGErrorSuccess) {
+        return;
+      }
+      m_cursorHidden = false;
+    }
+    hideCursor();
+  });
 }
 
 void OSXScreen::enable()
@@ -827,9 +856,8 @@ void OSXScreen::leave()
   if (m_isPrimary) {
     avoidHesitatingCursor();
 
-    // capture the mouse: freeze the cursor so no local app sees motion while on
-    // a client (onMouseMove reads raw deltas instead). must follow hideCursor(),
-    // which re-associates. re-coupled in enter()/disable().
+    // Capture the mouse while controlling a client. hideCursor() must not
+    // temporarily re-associate it; enter()/disable() restore association.
     CGAssociateMouseAndMouseCursorPosition(false);
   }
 
@@ -841,6 +869,9 @@ bool OSXScreen::setClipboard(ClipboardID, const IClipboard *src)
 {
   if (src != nullptr) {
     LOG_DEBUG("setting clipboard");
+    if (const auto offer = FileTransfer::clipboardOffer(*src)) {
+      return FileClipboard::receive(*offer);
+    }
     Clipboard::copy(&m_pasteboard, src);
   }
   return true;
@@ -848,8 +879,9 @@ bool OSXScreen::setClipboard(ClipboardID, const IClipboard *src)
 
 void OSXScreen::checkClipboards()
 {
+  checkCursorVisibility();
   LOG_VERBOSE("checking clipboard");
-  if (m_pasteboard.synchronize()) {
+  if (m_pasteboard.synchronize() && !FileClipboard::isRemote()) {
     LOG_DEBUG("clipboard changed");
     sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardClipboard);
     sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardSelection);
@@ -1031,6 +1063,13 @@ bool OSXScreen::onMouseMove(CGEventRef event)
 
 bool OSXScreen::onMouseButton(bool pressed, uint16_t macButton)
 {
+  if (m_isPrimary && macButton > 0 && macButton <= NumButtonIDs) {
+    const auto mask = 1U << (macButton - 1);
+    if (pressed)
+      m_primaryButtons.fetch_or(mask);
+    else
+      m_primaryButtons.fetch_and(~mask);
+  }
   // Buttons 2 and 3 are inverted on the mac
   ButtonID button = mapMacButtonToDeskflow(macButton);
 
@@ -1680,6 +1719,9 @@ OSXScreen::handleCGInputEventSecondary(CGEventTapProxy proxy, CGEventType type, 
 // Quartz event tap support
 CGEventRef OSXScreen::handleCGInputEvent(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon)
 {
+  if (CGEventGetIntegerValueField(event, kCGEventSourceUserData) == 0x44465231)
+    return event;
+
   OSXScreen *screen = (OSXScreen *)refcon;
 
   switch (type) {
@@ -1918,14 +1960,6 @@ void avoidSupression()
       (kCGEventFilterMaskPermitLocalKeyboardEvents | kCGEventFilterMaskPermitSystemDefinedEvents),
       kCGEventSupressionStateRemoteMouseDrag
   );
-}
-
-void logCursorVisibility()
-{
-  // CGCursorIsVisible is probably deprecated because its unreliable.
-  if (!CGCursorIsVisible()) {
-    LOG_WARN("cursor may not be visible");
-  }
 }
 
 void avoidHesitatingCursor()

@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
@@ -19,6 +20,7 @@
 #include <mach/mach_port.h>
 
 #include <bitset>
+#include <atomic>
 #include <map>
 #include <memory>
 #include <thread>
@@ -130,6 +132,7 @@ private:
   // Added here to allow the carbon cursor hack to be called.
   void showCursor();
   void hideCursor();
+  void checkCursorVisibility();
 
   // map deskflow mouse button to mac buttons
   ButtonID mapDeskflowButtonToMac(uint16_t) const;
@@ -219,6 +222,7 @@ private:
 
   // true if screen is being used as a primary screen, false otherwise
   bool m_isPrimary;
+  std::atomic<uint32_t> m_primaryButtons{0};
 
   // true if mouse has entered the screen
   bool m_isOnScreen;

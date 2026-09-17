@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md. -->
 <!DOCTYPE TS>
 <TS version="2.1" language="zh_CN" sourcelanguage="en_US">
 <context>
@@ -585,6 +586,34 @@ Additionally, check you are able to %1 the server config file: %2</source>
         <source>&lt;p&gt;Keyboard layout support requires matching layouts on all computers. The following layouts from the other computer are not installed on this computer:&lt;/p&gt;&lt;p&gt;&lt;b&gt;%1&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Please install them to enable support for these layouts.&lt;/p&gt;</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>File transfer</source>
+        <translation>文件传输</translation>
+    </message>
+    <message>
+        <source>Receiving files: %1% (%2 / %3 MiB).</source>
+        <translation>正在接收文件：%1%（%2 / %3 MiB）。</translation>
+    </message>
+    <message>
+        <source>Dragged files received. The destination will finish saving them.</source>
+        <translation>拖动文件已接收，目标位置正在完成保存。</translation>
+    </message>
+    <message>
+        <source>Files are ready. You can paste now.</source>
+        <translation>文件已就绪，现在可以粘贴。</translation>
+    </message>
+    <message>
+        <source>File transfer cancelled. Try again.</source>
+        <translation>文件传输已取消，可以重试。</translation>
+    </message>
+    <message>
+        <source>File transfer timed out. Try again.</source>
+        <translation>文件传输超时，可以重试。</translation>
+    </message>
+    <message>
+        <source>File transfer failed. Check the connection and source files, then retry.</source>
+        <translation>文件传输失败。请检查连接和源文件，然后重试。</translation>
+    </message>
 </context>
 <context>
     <name>NewScreenWidget</name>
@@ -992,6 +1021,10 @@ Additionally, check you are able to %1 the server config file: %2</source>
     <message>
         <source>Limit to:</source>
         <translation>限制为：</translation>
+    </message>
+    <message>
+        <source>Unlimited</source>
+        <translation>无限制</translation>
     </message>
     <message>
         <source>MB</source>

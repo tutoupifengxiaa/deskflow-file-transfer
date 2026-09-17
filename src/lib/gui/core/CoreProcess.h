@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Chris Rizzitello <sithlord48@gmail.com>
@@ -47,6 +48,7 @@ public:
   void applyLogLevel();
   void clearSettings();
   void retryDaemon();
+  void sendFileDrag(const QString &message);
 
   // getters
   Settings::CoreMode mode() const
@@ -94,6 +96,8 @@ Q_SIGNALS:
   void retryIn(int seconds);
   void peerFingerprint(const QString &fingerprint);
   void missingKeyboardLayouts(const QString &layouts);
+  void fileDragMessage(const QString &message);
+  void fileTransferProgress(const QString &state, qint64 received, qint64 total);
 
 private Q_SLOTS:
   void onProcessFinished(int exitCode, QProcess::ExitStatus);

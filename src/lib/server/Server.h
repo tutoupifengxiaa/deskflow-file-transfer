@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
@@ -7,6 +8,10 @@
  */
 
 #pragma once
+
+#include <QJsonObject>
+#include <set>
+#include <chrono>
 
 #include "base/Event.h"
 #include "base/Stopwatch.h"
@@ -20,6 +25,7 @@
 #include <climits>
 #include <map>
 #include <set>
+#include <chrono>
 #include <vector>
 
 class BaseClientProxy;
@@ -198,11 +204,22 @@ public:
   */
   void getClients(std::vector<std::string> &list) const;
   void sendConnectedClientsIpc() const;
+  void fileDragCommand(BaseClientProxy *source, const QJsonObject &command);
   size_t getMaximumClipboardSizeBytes() const;
 
   //@}
 
 private:
+  void sendFileDrag(BaseClientProxy *destination, const QJsonObject &command);
+  bool m_dragLeftDown = false;
+  std::set<BaseClientProxy *> m_dragPeers;
+  std::map<BaseClientProxy *, std::chrono::steady_clock::time_point> m_dragSeen;
+  BaseClientProxy *m_dragSource = nullptr;
+  BaseClientProxy *m_dragDestination = nullptr;
+  QString m_dragId;
+  QJsonObject m_dragOffer;
+  bool m_dragAwaitingSource = false;
+  int32_t m_dragTargetX = 0, m_dragTargetY = 0;
   // get canonical name of client
   std::string getName(const BaseClientProxy *) const;
 

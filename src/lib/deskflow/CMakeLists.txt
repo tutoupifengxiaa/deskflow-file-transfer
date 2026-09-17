@@ -1,3 +1,4 @@
+# Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 # SPDX-FileCopyrightText: (C) 2026 Deskflow Developers
 # SPDX-FileCopyrightText: (C) 2024 - 2026 Chris Rizzitello <sithlord48@gmail.com>
 # SPDX-FileCopyrightText: (C) 2012 - 2025 Symless Ltd
@@ -38,6 +39,10 @@ add_library(${lib_name} STATIC ${PLATFORM_CODE}
   Clipboard.h
   ClipboardChunk.cpp
   ClipboardChunk.h
+  FileDrag.cpp
+  FileDrag.h
+  FileTransfer.cpp
+  FileTransfer.h
   DeskflowException.cpp
   DeskflowException.h
   DisplayInvalidException.h

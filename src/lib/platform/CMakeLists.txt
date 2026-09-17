@@ -1,3 +1,4 @@
+# Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 # SPDX-FileCopyrightText: (C) 2024 - 2026 Chris Rizzitello <sithlord48@gmail.com>
 # SPDX-FileCopyrightText: (C) 2012 - 2024 Symless Ltd
 # SPDX-FileCopyrightText: (C) 2009 - 2012 Nick Bolton
@@ -172,6 +173,11 @@ endif()
 
 # wayland.h is included to check for wayland support
 add_library(platform STATIC ${PLATFORM_SOURCES})
+
+if(WIN32 OR APPLE)
+  target_sources(platform PRIVATE FileClipboard.cpp FileClipboard.h)
+  target_link_libraries(platform PRIVATE Qt6::Gui)
+endif()
 
 target_link_libraries(platform PUBLIC client ${libs})
 

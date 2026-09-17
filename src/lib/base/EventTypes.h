@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2023 Input-Leap Developers
@@ -232,6 +233,9 @@ enum class EventTypes : uint32_t
 
   /// This event is sent whenever a clipboard chunk is transferred.
   ClipboardSending,
+
+  /// A desktop GUI file-drag command, dispatched on the core event thread.
+  FileDragCommand,
 
   /// Start libei
   EIConnected,

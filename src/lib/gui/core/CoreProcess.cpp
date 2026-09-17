@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 - 2026 Chris Rizzitello <sithlord48@gmail.com>
@@ -468,14 +469,21 @@ void CoreProcess::start(std::optional<ProcessMode> processModeOption)
           connect(m_coreIpcClient, &ipc::CoreIpcClient::connected, this, [] {
             qDebug("connected to core ipc server");
           });
-          connect(m_coreIpcClient, &ipc::CoreIpcClient::connectionFailed, this, [] {
+          const auto reconnect = [this, client = m_coreIpcClient] {
+            // The Windows daemon can replace its core without restarting the
+            // GUI. A clean shutdown needs the same retry as a lost connection.
+            QTimer::singleShot(kRetryDelay, client, [this, client] {
+              if (m_processState == ProcessState::Started && m_coreIpcClient == client)
+                client->connectToServer();
+            });
+          };
+          connect(m_coreIpcClient, &ipc::CoreIpcClient::connectionFailed, this, [reconnect] {
             qWarning("failed to establish core ipc connection");
+            reconnect();
           });
-          connect(m_coreIpcClient, &ipc::CoreIpcClient::serverShutdown, this, [this, client = m_coreIpcClient] {
+          connect(m_coreIpcClient, &ipc::CoreIpcClient::serverShutdown, this, [reconnect] {
             qDebug("core ipc server shut down cleanly");
-            client->deleteLater();
-            if (m_coreIpcClient == client)
-              m_coreIpcClient = nullptr;
+            reconnect();
           });
 
           m_coreIpcClient->connectToServer();
@@ -621,7 +629,18 @@ void CoreProcess::setProcessState(ProcessState state)
 
 void CoreProcess::onCoreIpcMessageReceived(const QString &command, const QString &args)
 {
-  if (command == "connectionState") {
+  if (command == "fileDrag") {
+    Q_EMIT fileDragMessage(args);
+  } else if (command == "fileTransfer") {
+    const auto fields = args.split(',');
+    if (fields.size() != 3)
+      return;
+    bool receivedOkay = false, totalOkay = false;
+    const auto received = fields[1].toLongLong(&receivedOkay);
+    const auto total = fields[2].toLongLong(&totalOkay);
+    if (receivedOkay && totalOkay && received >= 0 && total >= received)
+      Q_EMIT fileTransferProgress(fields[0], received, total);
+  } else if (command == "connectionState") {
     const auto metaEnum = QMetaEnum::fromType<ConnectionState>();
     bool ok = false;
     const auto state = static_cast<ConnectionState>(metaEnum.keyToValue(args.toUtf8().constData(), &ok));
@@ -726,3 +745,9 @@ void CoreProcess::retryDaemon()
 }
 
 } // namespace deskflow::gui
+
+void deskflow::gui::CoreProcess::sendFileDrag(const QString &message)
+{
+  if (m_coreIpcClient && m_coreIpcClient->isConnected())
+    m_coreIpcClient->sendFileDrag(message);
+}

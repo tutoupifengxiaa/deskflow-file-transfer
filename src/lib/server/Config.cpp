@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 - 2026 Deskflow Developers
@@ -19,6 +20,7 @@
 #include <assert.h>
 #include <cstdlib>
 #include <istream>
+#include <limits>
 #include <ostream>
 
 using namespace deskflow::string;
@@ -471,7 +473,14 @@ void Config::readSectionOptions(ConfigReadContext &s)
   addOption("", kOptionRelativeMouseMoves, Settings::value(Settings::Server::RelativeMouseMoves).toBool());
   addOption("", kOptionWin32KeepForeground, Settings::value(Settings::Server::Win32KeepForeground).toBool());
   addOption("", kOptionClipboardSharing, Settings::value(Settings::Server::EnableClipboard).toBool());
-  addOption("", kOptionClipboardSharingSize, Settings::value(Settings::Server::ClipboardSize).toUInt() * 1024);
+  const auto clipboardSize = Settings::value(Settings::Server::ClipboardSize).toUInt();
+  // Legacy clients interpret zero as disabled. Use the largest positive wire
+  // option (in KiB) for unlimited; it exceeds the protocol's 32-bit data lengths.
+  const auto maximumClipboardSize = std::numeric_limits<int32_t>::max();
+  const auto clipboardSizeKiB = clipboardSize == 0 || clipboardSize > maximumClipboardSize / 1024
+                                    ? maximumClipboardSize
+                                    : static_cast<int32_t>(clipboardSize * 1024);
+  addOption("", kOptionClipboardSharingSize, clipboardSizeKiB);
 
   if (const auto address = Settings::value(Settings::Core::Interface).toString(); !address.isEmpty()) {
     m_deskflowAddress = NetworkAddress(address.toStdString(), Settings::value(Settings::Core::Port).toInt());

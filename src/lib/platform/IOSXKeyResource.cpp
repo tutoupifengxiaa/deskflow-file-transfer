@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2016 Synergy App Ltd
@@ -104,12 +105,11 @@ KeyID IOSXKeyResource::getKeyID(uint8_t c)
     // get current keyboard script
     AutoTISInputSourceRef isref(nullptr, CFRelease);
     CFArrayRef langs = nullptr;
-    {
-      std::lock_guard<std::mutex> lock(g_tisMutex);
+    runOnOSXMainThread([&]() {
       isref = AutoTISInputSourceRef(TISCopyCurrentKeyboardInputSource(), CFRelease);
       if (isref)
         langs = (CFArrayRef)TISGetInputSourceProperty(isref.get(), kTISPropertyInputSourceLanguages);
-    }
+    });
     CFStringEncoding encoding = CFStringConvertIANACharSetNameToEncoding((CFStringRef)CFArrayGetValueAtIndex(langs, 0));
     // convert to unicode
     CFStringRef cfString = CFStringCreateWithCStringNoCopy(kCFAllocatorDefault, str, encoding, kCFAllocatorNull);

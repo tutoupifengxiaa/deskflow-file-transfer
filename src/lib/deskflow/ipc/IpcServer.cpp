@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025-2026 Synergy App Ltd
@@ -63,15 +64,10 @@ void IpcServer::handleReadyRead()
   const auto clientSocket = qobject_cast<QLocalSocket *>(sender());
   LOG_VERBOSE("%s ipc server ready to read data", m_typeName.constData());
 
-  QByteArray data = clientSocket->readAll();
-  if (data.isEmpty()) {
-    LOG_WARN("%s ipc server got empty message", m_typeName.constData());
-    return;
-  }
-
-  // we don't handle incomplete messages yet; each socket read must have delimiters.
-  if (!data.contains('\n')) {
-    LOG_WARN("%s ipc server got incomplete message: %s", m_typeName.constData(), data.constData());
+  auto &data = m_readBuffers[clientSocket];
+  data += clientSocket->readAll();
+  if (data.size() > 256 * 1024) {
+    clientSocket->disconnectFromServer();
     return;
   }
 
@@ -90,6 +86,7 @@ void IpcServer::handleDisconnected()
   const auto clientSocket = qobject_cast<QLocalSocket *>(sender());
   LOG_DEBUG("%s ipc server client disconnected", m_typeName.constData());
   m_clients.remove(clientSocket);
+  m_readBuffers.remove(clientSocket);
   clientSocket->deleteLater();
 }
 
@@ -103,6 +100,7 @@ void IpcServer::handleErrorOccurred()
   }
 
   m_clients.remove(clientSocket);
+  m_readBuffers.remove(clientSocket);
   clientSocket->deleteLater();
 }
 

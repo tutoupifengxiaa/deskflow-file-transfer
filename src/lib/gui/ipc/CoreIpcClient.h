@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025-2026 Synergy App Ltd
@@ -20,6 +21,7 @@ public:
   explicit CoreIpcClient(QObject *parent = nullptr);
 
   void sendStop();
+  void sendFileDrag(const QString &message) { sendMessage(QStringLiteral("fileDrag=") + message); }
 
 Q_SIGNALS:
   void commandReceived(const QString &command, const QString &args);

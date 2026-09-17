@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
@@ -13,6 +14,7 @@
 #include "deskflow/ClipboardTypes.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/KeyboardLayoutManager.h"
+#include "deskflow/FileTransfer.h"
 
 class Client;
 class ClientInfo;
@@ -63,6 +65,8 @@ protected:
   ConnectionResult parseMessage(const uint8_t *code);
 
 private:
+  bool m_fileDragSupported = false;
+  bool m_fileDragGui = false;
   // if compressing mouse motion then send the last motion now
   void flushCompressedMouse();
 
@@ -132,4 +136,5 @@ private:
   ClipboardChunkAssemblyState m_clipboardChunkState;
   bool m_isUserNotifiedAboutLayoutSyncError = false;
   deskflow::KeyboardLayoutManager m_layoutManager;
+  std::unique_ptr<FileTransfer> m_files;
 };

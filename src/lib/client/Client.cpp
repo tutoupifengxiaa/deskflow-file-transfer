@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 - 2026 Deskflow Developers
@@ -7,6 +8,7 @@
  */
 
 #include "client/Client.h"
+#include <utility>
 
 #include "arch/Arch.h"
 #include "base/IEventQueue.h"
@@ -32,6 +34,8 @@
 
 #include <cstdlib>
 #include <cstring>
+
+#include <limits>
 
 //
 // Client
@@ -66,6 +70,11 @@ Client::Client(
 {
   assert(m_socketFactory != nullptr);
   assert(m_screen != nullptr);
+
+  // The settings dialog represents Unlimited as zero. The receive assembler
+  // needs an actual byte limit; passing zero rejects even a text clipboard.
+  if (m_maximumClipboardReceiveSize == 0)
+    m_maximumClipboardReceiveSize = (std::numeric_limits<size_t>::max)();
 
   // register suspend/resume event handlers
   m_events->addHandler(EventTypes::ScreenSuspend, getEventTarget(), [this](const auto &) { handleSuspend(); });
@@ -238,7 +247,8 @@ bool Client::leave()
 
   m_screen->leave();
 
-  if (m_enableClipboard) {
+  const bool skipClipboard = std::exchange(fileDragLeaving, false);
+  if (m_enableClipboard && !skipClipboard) {
     // send clipboards that we own and that have changed
     for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
       if (m_ownClipboard[id]) {

@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2013 - 2016 Synergy App Ltd
@@ -14,6 +15,7 @@ extern "C"
 #endif
 
   CFStringRef getDraggedFileURL();
+  CFIndex getClipboardChangeCount();
 
 #if defined(__cplusplus)
 }

@@ -1,3 +1,4 @@
+// Modified by tutoupifengxiaa, 2026-09-15 to 2026-09-17: unofficial file-transfer fork; see docs/SECONDARY_DEVELOPMENT.md.
 /*
  * Deskflow -- mouse and keyboard sharing utility
  * SPDX-FileCopyrightText: (C) 2025 - 2026 Chris Rizzitello <sithlord48@gmail.com>
@@ -255,7 +256,7 @@ QVariant Settings::defaultValue(const QString &key)
     return 250;
 
   if (key == Server::ClipboardSize)
-    return 3; // 3 MiB
+    return 0; // Unlimited
 
   return QVariant();
 }
