@@ -1054,10 +1054,11 @@ void MainWindow::updateFingerprintButton()
 
 void MainWindow::hide()
 {
+  // Hide this window as well as the app: native drag overlays can unhide the
+  // app on mouse-down, but must not restore a window closed to the tray.
+  QMainWindow::hide();
 #ifdef Q_OS_MACOS
   macOSNativeHide();
-#else
-  QMainWindow::hide();
 #endif
   m_actionRestore->setVisible(true);
   m_actionMinimize->setVisible(false);
