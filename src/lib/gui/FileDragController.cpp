@@ -103,13 +103,13 @@ FileDragController::~FileDragController()
   }
   qDeleteAll(m_edges);
 }
-void FileDragController::send(QJsonObject command)
+bool FileDragController::send(QJsonObject command)
 {
   const auto bytes = QJsonDocument(command).toJson(QJsonDocument::Compact);
-  if (bytes.size() <= 128 * 1024)
-    m_core.sendFileDrag(
-        QString::fromLatin1(bytes.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals))
-    );
+  return bytes.size() <= 128 * 1024 &&
+         m_core.sendFileDrag(
+             QString::fromLatin1(bytes.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals))
+         );
 }
 void FileDragController::clear()
 {
@@ -138,7 +138,8 @@ void FileDragController::offer(const QList<QUrl> &urls, int edge)
   }
   m_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
   qInfo("file drag: captured %d files at edge %d", static_cast<int>(paths.size()), edge);
-  send({{"action", "offer"}, {"id", m_id}, {"edge", edge}, {"paths", QJsonArray::fromStringList(paths)}});
+  if (!send({{"action", "offer"}, {"id", m_id}, {"edge", edge}, {"paths", QJsonArray::fromStringList(paths)}}))
+    clear();
 }
 void FileDragController::updateEdges()
 {
@@ -146,11 +147,17 @@ void FileDragController::updateEdges()
     m_hello.restart();
     send({{"action", "hello"}});
   }
-  if (m_seen.elapsed() > 10000 || !m_core.isStarted()) {
+  if (m_seen.elapsed() > 10000 || !m_core.isFileDragConnected()) {
     m_edgeMask = 0;
-    if (m_files) {
-      m_files->cancelled = true;
-      m_files->changed();
+    m_primaryLeftDown.reset();
+    if (!m_id.isEmpty())
+      send({{"action", "cancel"}, {"id", m_id}});
+    const auto files = m_files;
+    // Invalidate the session before notifying native code, which can finish synchronously.
+    clear();
+    if (files) {
+      files->cancelled = true;
+      files->changed();
     }
   }
   const bool down = m_primaryLeftDown ? *m_primaryLeftDown : nativeFileDragButtonDown();
@@ -236,18 +243,19 @@ void FileDragController::receive(const QString &message)
     for (auto *edge : m_edges)
       edge->hide();
     QTimer::singleShot(0, this, [this, files, id] {
+      if (m_id != id || m_files != files)
+        return;
       if (files->released || files->cancelled || files->entries.isEmpty()) {
         send({{"action", "cancel"}, {"id", id}});
         clear();
         return;
       }
       QPointer<FileDragController> guard(this);
-      startNativeFileDrag(m_owner, files, [this, guard, id](bool okay) {
-        if (!guard)
+      startNativeFileDrag(m_owner, files, [this, guard, files, id](bool okay) {
+        if (!guard || m_id != id || m_files != files)
           return;
         send({{"action", okay ? "done" : "cancel"}, {"id", id}});
-        if (m_id == id)
-          clear();
+        clear();
       });
     });
   } else if (id == m_id) {

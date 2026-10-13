@@ -8,6 +8,7 @@
 
 #include <QObject>
 #include <QString>
+#include <optional>
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -24,7 +25,7 @@ Q_SIGNALS:
   void updateFound(const QString &version);
 
 private:
-  static int compareVersions(const QString &left, const QString &right);
+  static std::optional<int> compareVersions(const QString &left, const QString &right);
 
   /**
    * \brief Converts a string stage to a integer value

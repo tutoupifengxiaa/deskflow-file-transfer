@@ -48,7 +48,8 @@ public:
   void applyLogLevel();
   void clearSettings();
   void retryDaemon();
-  void sendFileDrag(const QString &message);
+  bool sendFileDrag(const QString &message);
+  bool isFileDragConnected() const;
 
   // getters
   Settings::CoreMode mode() const

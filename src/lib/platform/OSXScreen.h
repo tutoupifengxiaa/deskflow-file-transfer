@@ -225,7 +225,7 @@ private:
   std::atomic<uint32_t> m_primaryButtons{0};
 
   // true if mouse has entered the screen
-  bool m_isOnScreen;
+  std::atomic<bool> m_isOnScreen;
 
   // the display
   CGDirectDisplayID m_displayID;

@@ -36,6 +36,7 @@ void VersionChecker::checkLatest() const
 
 void VersionChecker::replyFinished(QNetworkReply *reply)
 {
+  reply->deleteLater();
   const auto httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
   if (reply->error() != QNetworkReply::NoError) {
     qWarning("version check server error: %s", qPrintable(reply->errorString()));
@@ -46,8 +47,7 @@ void VersionChecker::replyFinished(QNetworkReply *reply)
 
   qDebug("version check server success, http status: %d", httpStatus);
 
-  const auto newestVersion = QString(reply->readAll());
-  reply->deleteLater();
+  const auto newestVersion = QString(reply->readAll()).trimmed();
   qDebug("version check response: %s", qPrintable(newestVersion));
 
   if (newestVersion.isEmpty()) {
@@ -55,7 +55,12 @@ void VersionChecker::replyFinished(QNetworkReply *reply)
     return;
   }
 
-  if (compareVersions(kVersion, newestVersion) > 0) {
+  const auto comparison = compareVersions(kVersion, newestVersion);
+  if (!comparison) {
+    qWarning("version check response has an invalid version format");
+    return;
+  }
+  if (*comparison > 0) {
     qWarning().noquote() //
         << QStringLiteral("current version %1 out of date, update available: %2").arg(kVersion, newestVersion);
     Q_EMIT updateFound(newestVersion);
@@ -93,10 +98,14 @@ int VersionChecker::getStageVersion(QString stage)
   return otherValue;
 }
 
-int VersionChecker::compareVersions(const QString &left, const QString &right)
+std::optional<int> VersionChecker::compareVersions(const QString &left, const QString &right)
 {
-  if (left.compare(right) == 0)
-    return 0; // versions are same.
+  static const QRegularExpression versionPattern(
+      "\\A[0-9]+(?:\\.[0-9]+){2,3}(?:-[A-Za-z][A-Za-z0-9.]*)?\\z"
+  );
+  if (left.size() > 128 || right.size() > 128 || !versionPattern.match(left).hasMatch() ||
+      !versionPattern.match(right).hasMatch())
+    return std::nullopt;
 
   QStringList leftParts = left.split("-");
   QStringList rightParts = right.split("-");
@@ -106,6 +115,15 @@ int VersionChecker::compareVersions(const QString &left, const QString &right)
 
   QStringList leftNumberParts = leftNumber.split(".");
   QStringList rightNumberParts = rightNumber.split(".");
+  for (const auto &parts : {leftNumberParts, rightNumberParts}) {
+    for (const auto &part : parts) {
+      bool okay = false;
+      if (part.toInt(&okay) < 0 || !okay)
+        return std::nullopt;
+    }
+  }
+  if (left.compare(right) == 0)
+    return 0; // versions are same.
 
   auto leftStagePart = leftParts.size() > 1 ? leftParts.at(1) : "";
   auto rightStagePart = rightParts.size() > 1 ? rightParts.at(1) : "";

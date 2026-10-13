@@ -1564,7 +1564,8 @@ bool OSXScreen::checkAXPermissions()
     return true;
   }
   LOG_CRIT("process is not trusted anymore, quitting");
-  disable();
+  // The event tap may call this on its own thread. Let the event loop's
+  // shutdown path disable the screen and join that thread.
   App &app = App::instance();
   app.getEvents()->addEvent(Event(EventTypes::Quit, nullptr, new ExitEventData(s_exitFailed)));
   return false;

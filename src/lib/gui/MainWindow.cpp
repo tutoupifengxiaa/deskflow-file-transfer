@@ -963,6 +963,8 @@ void MainWindow::fileTransferProgress(const QString &state, qint64 received, qin
     message = tr("File transfer cancelled. Try again.");
   } else if (state == "timeout") {
     message = tr("File transfer timed out. Try again.");
+  } else if (state == "cacheFull") {
+    message = tr("File transfer cache is full. Finish ongoing file copies, then click Restart to receive more files.");
   } else if (state == "failed") {
     message = tr("File transfer failed. Check the connection and source files, then retry.");
   } else {
@@ -1054,10 +1056,11 @@ void MainWindow::updateFingerprintButton()
 
 void MainWindow::hide()
 {
+  // Hide this window as well as the app: native drag overlays can unhide the
+  // app on mouse-down, but must not restore a window closed to the tray.
+  QMainWindow::hide();
 #ifdef Q_OS_MACOS
   macOSNativeHide();
-#else
-  QMainWindow::hide();
 #endif
   m_actionRestore->setVisible(true);
   m_actionMinimize->setVisible(false);

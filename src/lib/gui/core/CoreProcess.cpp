@@ -746,8 +746,15 @@ void CoreProcess::retryDaemon()
 
 } // namespace deskflow::gui
 
-void deskflow::gui::CoreProcess::sendFileDrag(const QString &message)
+bool deskflow::gui::CoreProcess::sendFileDrag(const QString &message)
 {
-  if (m_coreIpcClient && m_coreIpcClient->isConnected())
-    m_coreIpcClient->sendFileDrag(message);
+  if (!isFileDragConnected())
+    return false;
+  m_coreIpcClient->sendFileDrag(message);
+  return true;
+}
+
+bool deskflow::gui::CoreProcess::isFileDragConnected() const
+{
+  return isStarted() && m_coreIpcClient && m_coreIpcClient->isConnected();
 }

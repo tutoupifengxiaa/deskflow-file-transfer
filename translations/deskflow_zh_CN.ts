@@ -611,6 +611,10 @@ Additionally, check you are able to %1 the server config file: %2</source>
         <translation>文件传输超时，可以重试。</translation>
     </message>
     <message>
+        <source>File transfer cache is full. Finish ongoing file copies, then click Restart to receive more files.</source>
+        <translation>文件传输缓存已满。请等待正在进行的文件复制完成，再点击“重启”以接收更多文件。</translation>
+    </message>
+    <message>
         <source>File transfer failed. Check the connection and source files, then retry.</source>
         <translation>文件传输失败。请检查连接和源文件，然后重试。</translation>
     </message>

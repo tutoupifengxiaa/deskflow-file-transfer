@@ -176,6 +176,11 @@ std::map<QString, FileTransfer *> routes;
 // Clipboard URLs must stay readable while Finder/Explorer copies them. Their
 // temporary directories are retained for this core session and removed on exit.
 std::vector<std::unique_ptr<QTemporaryDir>> completedDirectories;
+constexpr qint64 maxReceivedBytes = 4LL * 1024 * 1024 * 1024;
+constexpr size_t maxReceivedBatches = 32;
+// Include active downloads so multiple peers cannot exceed the session limit.
+qint64 receivedBytes = 0;
+size_t receivedBatches = 0;
 
 std::string encode(const QJsonObject &object)
 {
@@ -223,6 +228,15 @@ struct FileTransfer::Impl
   std::function<void(const QJsonObject &)> dragHandler;
   struct Download
   {
+    ~Download()
+    {
+      // A completed download transfers its directory to completedDirectories;
+      // keep its reservation until exit, even after its connection closes.
+      if (budgetReserved && directory) {
+        receivedBytes -= total;
+        --receivedBatches;
+      }
+    }
     QString id;
     QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
     std::vector<Entry> entries;
@@ -232,6 +246,7 @@ struct FileTransfer::Impl
     int pending = 0;
     qint64 received = 0;
     qint64 total = 0;
+    bool budgetReserved = false;
     std::chrono::steady_clock::time_point progressAt;
 #ifdef Q_OS_WIN
     QByteArray reader;
@@ -289,7 +304,7 @@ struct FileTransfer::Impl
       if (!d.file->open(QIODevice::WriteOnly) ||
           !d.file->setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
         LOG_WARN("file clipboard: could not create temporary file");
-        cancel();
+        cancel(true);
         return false;
       }
     }
@@ -395,10 +410,15 @@ struct FileTransfer::Impl
         object.value("bytes").toString().toLatin1(), QByteArray::AbortOnBase64DecodingErrors
     );
     const auto wanted = std::min(chunkSize, d.entries[d.index].size - d.offset);
-    if (!decoded || decoded.decoded.size() != wanted || d.file->write(decoded.decoded) != wanted) {
-      LOG_WARN("file clipboard: invalid data or disk write failure");
+    if (!decoded || decoded.decoded.size() != wanted) {
+      LOG_WARN("file clipboard: invalid data");
       cancel();
       return false;
+    }
+    if (d.file->write(decoded.decoded) != wanted) {
+      LOG_WARN("file clipboard: disk write failed");
+      cancel(true);
+      return true;
     }
     d.hash.addData(decoded.decoded);
     d.offset += wanted;
@@ -410,10 +430,15 @@ struct FileTransfer::Impl
       FileTransfer::reportProgress(QStringLiteral("receiving"), d.received, d.total);
     }
     if (d.offset == d.entries[d.index].size) {
-      if (object.value("sha256").toString().toLatin1() != d.hash.result().toHex() || !d.file->commit()) {
-        LOG_WARN("file clipboard: checksum or commit failed");
+      if (object.value("sha256").toString().toLatin1() != d.hash.result().toHex()) {
+        LOG_WARN("file clipboard: checksum failed");
         cancel();
         return false;
+      }
+      if (!d.file->commit()) {
+        LOG_WARN("file clipboard: commit failed");
+        cancel(true);
+        return true;
       }
       d.paths.push_back(d.directory->filePath(d.entries[d.index].name));
       d.file.reset();
@@ -429,8 +454,8 @@ struct FileTransfer::Impl
           readable = readable && allowReader(d.directory->path(), d.reader, true);
           if (!readable) {
             LOG_WARN("file clipboard: could not grant the receiving user read access");
-            cancel();
-            return false;
+            cancel(true);
+            return true;
           }
         }
 #endif
@@ -444,7 +469,9 @@ struct FileTransfer::Impl
         return true;
       }
     }
-    return request();
+    // A local file creation failure cancels the transfer, not the connection.
+    request();
+    return true;
   }
 };
 
@@ -602,6 +629,14 @@ bool FileTransfer::fetch(const std::string &offer, Complete complete, std::funct
       return false;
     download->total += entry.size;
   }
+  if (receivedBatches >= maxReceivedBatches || download->total > maxReceivedBytes - receivedBytes) {
+    LOG_WARN("file clipboard: session cache limit reached (4 GiB or 32 batches); finish copies before restarting core");
+    reportProgress(QStringLiteral("cacheFull"));
+    return false;
+  }
+  receivedBytes += download->total;
+  ++receivedBatches;
+  download->budgetReserved = true;
   download->id = id;
   download->entries = std::move(entries);
   download->complete = std::move(complete);

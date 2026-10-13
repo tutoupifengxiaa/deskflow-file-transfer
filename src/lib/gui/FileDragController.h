@@ -59,7 +59,7 @@ public:
   void sourceEnded();
 
 private:
-  void send(QJsonObject command);
+  bool send(QJsonObject command);
   void receive(const QString &message);
   void updateEdges();
   void clear();
